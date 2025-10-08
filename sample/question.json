@@ -1,0 +1,44 @@
+{
+    "sections": [
+        {
+            "questions": [
+                {
+                    "failureMarks": 0,
+                    "questionNumber": 3,
+                    "questionText": "Explain the Pythagorean theorem.",
+                    "successMarks": 4,
+                    "type": "open-ended"
+                },
+                {
+                    "failureMarks": -1,
+                    "options": [
+                        "2",
+                        "3",
+                        "4",
+                        "5"
+                    ],
+                    "questionNumber": 1,
+                    "questionText": "What is 2 + 2?",
+                    "successMarks": 4,
+                    "type": "mcq"
+                }
+            ],
+            "sectionId": 1,
+            "title": "Mathematics"
+        },
+        {
+            "questions": [
+                {
+                    "failureMarks": 0,
+                    "questionNumber": 2,
+                    "questionText": "Briefly describe the importance of the United Nations.",
+                    "successMarks": 4,
+                    "type": "open-ended"
+                }
+            ],
+            "sectionId": 2,
+            "title": "General Knowledge"
+        }
+    ],
+    "title": "Sample Test"
+}
