@@ -1,0 +1,34 @@
+{
+    "email": "{{email}}",
+    "token": "{{token}}",
+    "attempt_id": attempt_id,
+    "answer": {
+        "sections": [
+            {
+                "answers": [
+                    {
+                        "questionNumber": 3,
+                        "CorrectOption": 2
+                    },
+                    {
+                        "questionNumber": 1,
+                        "CorrectOptions": [
+                            1,
+                            3
+                        ]
+                    }
+                ],
+                "sectionId": 1
+            },
+            {
+                "answers": [
+                    {
+                        "questionNumber": 1,
+                        "answer": "Answer to question 1"
+                    }
+                ],
+                "sectionId": 2
+            }
+        ]
+    }
+}

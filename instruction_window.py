@@ -65,7 +65,7 @@ class InstructionWindow(QMainWindow):
                     token=self.token,
                     test_id=int(self.test_id),
                     attempt_id=int(self.attempt_id),
-                    question_json=question_json,
+                    question_json_string=question_json,
                 )
                 self.test_window.show()
                 # Notify callback (if any)

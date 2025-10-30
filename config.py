@@ -16,6 +16,7 @@ class Endpoints:
     LOGIN = f"{API_BASE_URL}/auth/test-portal/login"
     INIT_TEST = f"{API_BASE_URL}/test-portal/init"
     START_TEST = f"{API_BASE_URL}/test-portal/start"
+    UPDATE_ATTEMPT = f"{API_BASE_URL}/test-portal/update-attempt"
 
 
 __all__ = ["API_BASE_URL", "Endpoints"]
