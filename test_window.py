@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication
+import time
+
+from PySide6.QtCore import Qt, QTimer, QCoreApplication
+from PySide6.QtGui import QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -40,12 +42,13 @@ class TestWindow(QMainWindow):
     }
     """
 
-    def __init__(self, email: str, token: str, test_id: Any, attempt_id: Any, question_json_string: str) -> None:
+    def __init__(self, email: str, token: str, test_id: Any, attempt_id: Any, question_json_string: str, duration_minutes: int) -> None:
         super().__init__()
 
         # Window chrome
         self.setWindowTitle("Quantum Scholar - AI Proctored Exams (Test)")
-        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+        # Kiosk-like window behavior: frameless, full-screen, and always on top
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.showFullScreen()
 
         # Context
@@ -53,6 +56,8 @@ class TestWindow(QMainWindow):
         self.token = token
         self.test_id = test_id
         self.attempt_id = attempt_id
+        # Countdown duration
+        self.remaining_seconds: int = max(0, int(duration_minutes)) * 60
 
         # Parse incoming JSON safely
         try:
@@ -80,12 +85,31 @@ class TestWindow(QMainWindow):
         self.section_bar_layout: QHBoxLayout | None = None
         self.question_bar_layout: QHBoxLayout | None = None
         self.question_layout: QVBoxLayout | None = None
+        self.timer_label = None  # type: Optional[QLabel]
+        self.warning_label = None  # type: Optional[QLabel]
+        self._countdown_timer = None  # type: Optional[QTimer]
+        self._ending = False
+
+        # Kiosk/violation state
+        self.violation_count: int = 0
+        self.violation_limit: int = 3
+        self._last_violation_ts: float = 0.0
 
         # Build UI
         self._build_ui()
         self._populate_sections()
         self._populate_question_bar()
         self._update_question_display()
+        self._init_countdown_timer()
+
+        # Grab keyboard to ensure we receive as many key events as possible
+        self.grabKeyboard()
+
+        # Detect app focus changes (e.g., Alt+Tab / Win key). We can't block them at OS level
+        # without elevated hooks, but we can detect and respond.
+        app = QGuiApplication.instance()
+        if app is not None:
+            app.applicationStateChanged.connect(self._on_app_state_changed)
 
     # ------------------------- UI BUILDERS -------------------------
     def _build_ui(self) -> None:
@@ -103,10 +127,48 @@ class TestWindow(QMainWindow):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(0)
 
-        # Title
+        # Title + Timer row
+        header_widget = QWidget()
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
         title_label = QLabel(self.test_title)
         title_label.setStyleSheet("font-size: 22px; font-weight: bold; padding: 10px;")
-        top_layout.addWidget(title_label)
+
+        self.timer_label = QLabel(self._format_seconds(self.remaining_seconds))
+        self.timer_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.timer_label.setStyleSheet("font-size: 18px; font-weight: bold; padding: 10px;")
+
+        # Warning banner (hidden by default)
+        self.warning_label = QLabel("")
+        self.warning_label.setVisible(False)
+        self.warning_label.setStyleSheet(
+            "background-color: #d32f2f; color: white; font-size: 14px;"
+            " padding: 6px 10px; border-radius: 4px;"
+        )
+
+        end_button = QPushButton("End Test")
+        end_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #d32f2f; color: white; padding: 6px 12px;
+                font-weight: bold; border: none; border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #b71c1c; }
+            """
+        )
+        end_button.clicked.connect(self.end_test)
+
+        header_layout.addWidget(title_label)
+        header_layout.addStretch(1)
+        header_layout.addWidget(self.timer_label)
+        header_layout.addSpacing(8)
+        header_layout.addWidget(self.warning_label)
+        header_layout.addSpacing(8)
+        header_layout.addWidget(end_button)
+
+        header_widget.setLayout(header_layout)
+        top_layout.addWidget(header_widget)
 
         # Sections bar
         section_bar_widget = QWidget()
@@ -136,6 +198,163 @@ class TestWindow(QMainWindow):
 
         central.setLayout(main_layout)
         self.setCentralWidget(central)
+
+    # ------------------------- KIOSK ENFORCEMENT -------------------------
+    def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
+        """Detect when the app becomes inactive (likely app switching) and warn."""
+        if state == Qt.ApplicationInactive:
+            self._record_violation("Application switched or unfocused")
+            # Try to bring our window back to the foreground
+            QTimer.singleShot(0, self._enforce_foreground)
+
+    def _enforce_foreground(self) -> None:
+        """Re-assert full-screen and top-most, and reclaim keyboard focus."""
+        try:
+            self.raise_()
+            self.activateWindow()
+            # Re-assert full screen in case it was minimized
+            self.showFullScreen()
+            self.grabKeyboard()
+        except Exception:
+            pass
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        """Intercept special keys/combos and treat as violations, otherwise forward to focused widget."""
+        if self._handle_forbidden_key(event):
+            event.accept()
+            return
+
+        # When keyboard is grabbed by the window, forward non-forbidden keys to the focused widget
+        fw = self.focusWidget()
+        if fw is not None and fw is not self:
+            try:
+                clone = QKeyEvent(event.type(), event.key(), event.modifiers(), event.text(), event.isAutoRepeat(), event.count())
+            except Exception:
+                clone = QKeyEvent(event.type(), event.key(), event.modifiers(), event.text())
+            QCoreApplication.sendEvent(fw, clone)
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
+    def _handle_forbidden_key(self, event: QKeyEvent) -> bool:
+        key = event.key()
+        mods = event.modifiers()
+
+        # Common OS/system switching or exit shortcuts
+        # Alt+Tab (app switch) - often not delivered to app, but handle when it is
+        if key == Qt.Key_Tab and (mods & Qt.AltModifier):
+            self._record_violation("Alt+Tab detected")
+            return True
+
+        # Alt+F4 (close window)
+        if key == Qt.Key_F4 and (mods & Qt.AltModifier):
+            self._record_violation("Alt+F4 detected")
+            return True
+
+        # Windows/Meta key
+        if key in (Qt.Key_Meta, Qt.Key_Super_L, Qt.Key_Super_R):
+            self._record_violation("Windows key detected")
+            return True
+
+        # Ctrl+Esc (Start menu)
+        if key == Qt.Key_Escape and (mods & Qt.ControlModifier):
+            self._record_violation("Ctrl+Esc detected")
+            return True
+
+        # Ctrl+Shift+Esc (Task Manager)
+        if key == Qt.Key_Escape and (mods & Qt.ControlModifier) and (mods & Qt.ShiftModifier):
+            self._record_violation("Ctrl+Shift+Esc detected")
+            return True
+
+        # Alt key alone pressed (potential attempt)
+        if key == Qt.Key_Alt:
+            self._record_violation("Alt key detected")
+            return True
+
+        return False
+
+    def _record_violation(self, reason: str) -> None:
+        """Increment violation count (with minor throttle) and update UI; end if limit reached."""
+        now = time.monotonic()
+        # Throttle duplicate signals within 0.75s
+        if now - self._last_violation_ts < 0.75:
+            return
+        self._last_violation_ts = now
+
+        self.violation_count += 1
+        remaining = max(0, self.violation_limit - self.violation_count)
+
+        # Update warning banner
+        if self.warning_label is not None:
+            self.warning_label.setText(f"Warning {self.violation_count}/{self.violation_limit}: {reason}")
+            self.warning_label.setVisible(True)
+            # Auto-hide after a short delay if not disqualified
+            if self.violation_count < self.violation_limit:
+                QTimer.singleShot(3000, lambda: self.warning_label and self.warning_label.setVisible(False))
+
+        # End test after limit reached
+        if self.violation_count >= self.violation_limit:
+            # Give a brief moment for UI to show, then end
+            QTimer.singleShot(500, self.end_test)
+
+    # ------------------------- TIMER LOGIC -------------------------
+    def _init_countdown_timer(self) -> None:
+        """Initialize and start countdown if duration > 0."""
+        # Ensure initial label text and color
+        self._update_timer_label()
+
+        if self.remaining_seconds <= 0:
+            return
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.timeout.connect(self._tick_countdown)
+        self._countdown_timer.start(1000)
+
+    def _tick_countdown(self) -> None:
+        if self.remaining_seconds > 0:
+            self.remaining_seconds -= 1
+            self._update_timer_label()
+            if self.remaining_seconds == 0 and self._countdown_timer is not None:
+                self._countdown_timer.stop()
+                # Time up: end test (save and close)
+                self.end_test()
+                
+    def end_test(self) -> None:
+        """Save answers and close the application safely (idempotent)."""
+        if self._ending:
+            return
+        self._ending = True
+        try:
+            # Perform a final save (blocking post)
+            self.save_answer()
+        finally:
+            # Close the app regardless of save outcome
+            QGuiApplication.quit()
+
+    def _update_timer_label(self) -> None:
+        if self.timer_label is None:
+            return
+        self.timer_label.setText(self._format_seconds(self.remaining_seconds))
+        # Change color based on remaining time
+        color = "#2e7d32"  # green
+        if self.remaining_seconds <= 60:
+            color = "#d32f2f"  # red
+        elif self.remaining_seconds <= 5 * 60:
+            color = "#f57c00"  # orange
+        self.timer_label.setStyleSheet(
+            f"font-size: 18px; font-weight: bold; padding: 10px; color: {color};"
+        )
+
+    @staticmethod
+    def _format_seconds(total_seconds: int) -> str:
+        if total_seconds < 0:
+            total_seconds = 0
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
 
     def _populate_sections(self) -> None:
         """Create/refresh section buttons with correct checked state."""

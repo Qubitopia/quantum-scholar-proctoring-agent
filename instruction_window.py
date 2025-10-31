@@ -56,6 +56,7 @@ class InstructionWindow(QMainWindow):
             if response.status_code == 200:
                 # Expecting: {"message": "Test started successfully", "question_json": attempt.QuestionJSON}
                 question_json = data.get("question_json")
+                duration_minutes = data.get("duration_minutes")
                 if question_json is None:
                     QMessageBox.critical(self, "Start Test Failed", "Missing question_json in response.")
                     return
@@ -66,6 +67,7 @@ class InstructionWindow(QMainWindow):
                     test_id=int(self.test_id),
                     attempt_id=int(self.attempt_id),
                     question_json_string=question_json,
+                    duration_minutes=duration_minutes,
                 )
                 self.test_window.show()
                 # Notify callback (if any)

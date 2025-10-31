@@ -6,7 +6,14 @@ from PySide6.QtGui import QPixmap
 from test_list_window import TestListWindow
 from config import Endpoints
 import os
+import sys
 from pathlib import Path
+
+
+def resource_path(*parts: str) -> Path:
+    """Resolve resource paths for dev and PyInstaller-frozen modes."""
+    base = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)
+    return Path(base, *parts)
 
 class MainWindow(QMainWindow):
     # Emits (tests: list[dict], email: str, token: str)
@@ -25,7 +32,7 @@ class MainWindow(QMainWindow):
         # Logo
         logo_label = QLabel(self)
         # Robust asset path resolution
-        asset_path = Path(__file__).resolve().parent / "assets" / "Qubitopia-logo-transparent.png"
+        asset_path = resource_path("assets", "Qubitopia-logo-transparent.png")
         pixmap = QPixmap(str(asset_path))
         pixmap = pixmap.scaledToWidth(250, Qt.SmoothTransformation)
         logo_label.setPixmap(pixmap)

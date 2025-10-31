@@ -7,11 +7,21 @@ from login_window import MainWindow
 from test_list_window import TestListWindow
 from pathlib import Path
 
+
+def resource_path(*parts: str) -> Path:
+	"""Resolve resource paths for dev and frozen (PyInstaller) modes.
+
+	When frozen, files are next to the executable in dist; _MEIPASS points to
+	the temp unpack dir for onefile, but in onedir we can still rely on cwd/MEIPASS.
+	"""
+	base = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)
+	return Path(base, *parts)
+
 class AppController(QObject):
 	def __init__(self):
 		super().__init__()
 		self.app = QApplication(sys.argv)
-		icon_path = Path(__file__).resolve().parent / 'assets' / 'Qubitopia-logo-transparent.png'
+		icon_path = resource_path('assets', 'Qubitopia-logo-transparent.png')
 		self.app.setWindowIcon(QtGui.QIcon(str(icon_path)))
 		self.login_window = MainWindow()
 		self.login_window.login_success.connect(self.show_test_list_window)

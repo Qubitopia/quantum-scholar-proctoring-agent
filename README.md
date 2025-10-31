@@ -31,6 +31,11 @@ $env:QS_API_BASE_URL = "http://localhost:8000"
 python main.py
 ```
 
+## Build
+```pwsh
+python -m PyInstaller --noconfirm --windowed --onefile --name QuantumScholar --add-data "assets;assets" main.py
+```
+
 ## Configuration
 
 Set `QS_API_BASE_URL` to point to your API server. Endpoints are defined in `config.py`.
